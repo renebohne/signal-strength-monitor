@@ -15,8 +15,6 @@ TinyGsm modem(SerialAT);
 
 TinyGsmClient client(modem);
 
-#include <WiFi.h>
-
 void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
     Serial.println("Connected to WIFI AP successfully!");
