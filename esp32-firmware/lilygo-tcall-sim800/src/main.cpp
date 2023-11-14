@@ -3,6 +3,7 @@
 #include "config.h"
 #include "utilities.h"
 #include <TinyGsmClient.h>
+#include <WiFi.h>
 
 #ifdef DUMP_AT_COMMANDS
 #include <StreamDebugger.h>
@@ -14,6 +15,50 @@ TinyGsm modem(SerialAT);
 
 TinyGsmClient client(modem);
 
+#include <WiFi.h>
+
+void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+    Serial.println("Connected to WIFI AP successfully!");
+}
+
+void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+    Serial.println("WiFi connected");
+    Serial.println("IP address: ");
+    Serial.println(WiFi.localIP());
+}
+
+void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+    Serial.println("Disconnected from WiFi access point");
+    Serial.print("WiFi lost connection. Reason: ");
+    Serial.println(info.wifi_sta_disconnected.reason);
+    Serial.println("Trying to Reconnect");
+    WiFi.begin(ssid, password);
+}
+
+void setupWifi()
+{
+    // delete old config
+    WiFi.disconnect(true);
+
+    delay(1000);
+
+    WiFi.onEvent(WiFiStationConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
+    WiFi.onEvent(WiFiGotIP, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
+    WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+
+    /* Remove WiFi event
+    Serial.print("WiFi Event ID: ");
+    Serial.println(eventID);
+    WiFi.removeEvent(eventID);*/
+
+    WiFi.begin(ssid, password);
+    Serial.println();
+    Serial.println();
+    Serial.println("Wait for WiFi... ");
+}
 
 void setupModem()
 {
@@ -53,17 +98,18 @@ void turnOnNetlight()
     modem.sendAT("+CNETLIGHT=1");
 }
 
-
 void setup()
 {
     SerialMon.begin(115200);
-
     delay(10);
 
     // Start power management
-    if (setupPMU() == false) {
+    if (setupPMU() == false)
+    {
         Serial.println("Setting power error");
     }
+
+    setupWifi();
 
     // Some start operations
     setupModem();
@@ -83,7 +129,7 @@ void loop()
     turnOffNetlight();
 
     // The status light cannot be turned off, only physically removed
-    //turnOffStatuslight();
+    // turnOffStatuslight();
 
     // Or, use modem.init() if you don't need the complete restart
     String modemInfo = modem.getModemInfo();
@@ -95,23 +141,24 @@ void loop()
     SerialMon.println(imei);
 
     SimStatus simstatus = modem.getSimStatus();
-    if(simstatus==0)
+    if (simstatus == 0)
     {
         SerialMon.println("SIM ERROR!");
         modem.poweroff();
         SerialMon.println();
         printVoltages();
-        while(true)
+        while (true)
         {
-          digitalWrite(LED_GPIO, LED_ON);
-          delay(100);
-          digitalWrite(LED_GPIO, LED_OFF);
-          delay(100);
+            digitalWrite(LED_GPIO, LED_ON);
+            delay(100);
+            digitalWrite(LED_GPIO, LED_OFF);
+            delay(100);
         }
     }
 
     // Unlock your SIM card with a PIN if needed
-    if (strlen(simPIN) && simstatus != 3 ) {
+    if (strlen(simPIN) && simstatus != 3)
+    {
         modem.simUnlock(simPIN);
     }
 
@@ -120,7 +167,8 @@ void loop()
     SerialMon.println(imsi);
 
     SerialMon.print("Waiting for network...");
-    if (!modem.waitForNetwork(240000L)) {
+    if (!modem.waitForNetwork(240000L))
+    {
         SerialMon.println(" fail");
         delay(10000);
         return;
@@ -130,13 +178,15 @@ void loop()
     // When the network connection is successful, turn on the indicator
     digitalWrite(LED_GPIO, LED_ON);
 
-    if (modem.isNetworkConnected()) {
+    if (modem.isNetworkConnected())
+    {
         SerialMon.println("Network connected");
     }
 
     SerialMon.print(F("Connecting to APN: "));
     SerialMon.print(apn);
-    if (!modem.gprsConnect(apn, gprsUser, gprsPass)) {
+    if (!modem.gprsConnect(apn, gprsUser, gprsPass))
+    {
         SerialMon.println(" fail");
         delay(10000);
         return;
@@ -147,6 +197,4 @@ void loop()
     modem.gprsDisconnect();
     SerialMon.println(F("GPRS disconnected"));
     delay(30000);
-
-
 }
