@@ -23,22 +23,22 @@ Point sensor("signal");
 
 void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
-    Serial.println("Connected to WIFI AP successfully!");
+    SerialMon.println("Connected to WIFI AP successfully!");
 }
 
 void WiFiGotIP(WiFiEvent_t event, WiFiEventInfo_t info)
 {
-    Serial.println("WiFi connected");
-    Serial.println("IP address: ");
-    Serial.println(WiFi.localIP());
+    SerialMon.println("WiFi connected");
+    SerialMon.println("IP address: ");
+    SerialMon.println(WiFi.localIP());
 }
 
 void WiFiStationDisconnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
-    Serial.println("Disconnected from WiFi access point");
-    Serial.print("WiFi lost connection. Reason: ");
-    Serial.println(info.wifi_sta_disconnected.reason);
-    Serial.println("Trying to Reconnect");
+    SerialMon.println("Disconnected from WiFi access point");
+    SerialMon.print("WiFi lost connection. Reason: ");
+    SerialMon.println(info.wifi_sta_disconnected.reason);
+    SerialMon.println("Trying to Reconnect");
     WiFi.begin(ssid, password);
 }
 
@@ -54,8 +54,8 @@ void setupWifi()
     WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
     /* Remove WiFi event
-    Serial.print("WiFi Event ID: ");
-    Serial.println(eventID);
+    SerialMon.print("WiFi Event ID: ");
+    SerialMon.println(eventID);
     WiFi.removeEvent(eventID);*/
 
     WiFi.begin(ssid, password);
@@ -77,18 +77,19 @@ void setupWifi()
     // Accurate time is necessary for certificate validation and writing in batches
     // For the fastest time sync find NTP servers in your area: https://www.pool.ntp.org/zone/
     // Syncing progress and the time will be printed to Serial.
+    // TODO: make sure that the right serial port is used in any case
     timeSync(TZ_INFO, "pool.ntp.org", "time.nis.gov");
 
     // Check server connection
     if (influx.validateConnection())
     {
-        Serial.print("Connected to InfluxDB: ");
-        Serial.println(influx.getServerUrl());
+        SerialMon.print("Connected to InfluxDB: ");
+        SerialMon.println(influx.getServerUrl());
     }
     else
     {
-        Serial.print("InfluxDB connection failed: ");
-        Serial.println(influx.getLastErrorMessage());
+        SerialMon.print("InfluxDB connection failed: ");
+        SerialMon.println(influx.getLastErrorMessage());
     }
 }
 
@@ -96,12 +97,14 @@ void turnOffNetlight()
 {
     SerialMon.println("Turning off SIM800 Red LED...");
     modem.sendAT("+CNETLIGHT=0");
+    modem.waitResponse();
 }
 
 void turnOnNetlight()
 {
     SerialMon.println("Turning on SIM800 Red LED...");
     modem.sendAT("+CNETLIGHT=1");
+    modem.waitResponse();
 }
 
 void setupModem()
@@ -115,6 +118,10 @@ void setupModem()
     pinMode(MODEM_PWRKEY, OUTPUT);
     pinMode(MODEM_POWER_ON, OUTPUT);
 
+    // Initialize the indicator as an output
+    pinMode(LED_GPIO, OUTPUT);
+    digitalWrite(LED_GPIO, LED_OFF);
+
     // Turn on the Modem power first
     digitalWrite(MODEM_POWER_ON, HIGH);
 
@@ -125,9 +132,7 @@ void setupModem()
     delay(1000);
     digitalWrite(MODEM_PWRKEY, HIGH);
 
-    // Initialize the indicator as an output
-    pinMode(LED_GPIO, OUTPUT);
-    digitalWrite(LED_GPIO, LED_OFF);
+    delay(5000);
 
     // Restart takes quite some time
     SerialMon.println("Initializing modem...");
@@ -136,32 +141,41 @@ void setupModem()
         SerialMon.print(".");
         delay(5000);
     }
-    SerialAT.flush();
-    delay(1000);
     SerialMon.println();
 
+/*
+    modem.sendAT(GF("+CMEE=0"));  // turn off error codes
+    modem.waitResponse();
+    modem.sendAT(GF("+CIURC=0"));  // turn off URC presentation
+    modem.waitResponse();
+    modem.sendAT(GF("&w"));  // save
+    modem.waitResponse();
+    modem.streamClear();
+    delay(5000);
+*/
+
+
+    //modem.factoryDefault();
+
     // Turn off network status lights to reduce current consumption
-    turnOffNetlight();
+    //turnOffNetlight();
 
     // The status light cannot be turned off, only physically removed
     // turnOffStatuslight();
 
+   
     String modemName = modem.getModemName();
     SerialMon.print("Modem: ");
     SerialMon.println(modemName);
     SerialMon.println();
     sensor.addTag("modem", modemName.c_str());
-    SerialAT.flush();
-    delay(1000);
 
     String imei = modem.getIMEI();
     SerialMon.print("imei: ");
     SerialMon.println(imei);
     SerialMon.println();
     sensor.addTag("imei", imei.c_str());
-    SerialAT.flush();
-    delay(1000);
-
+    
     SimStatus simstatus = modem.getSimStatus();
     if (simstatus == 0)
     {
@@ -187,7 +201,7 @@ void setupModem()
 
 void measureNetwork()
 {
-    turnOnNetlight();
+    //turnOnNetlight();
 
     String imsi = modem.getIMSI();
     SerialMon.print("IMSI: ");
@@ -211,8 +225,8 @@ void measureNetwork()
         SerialMon.println(influx.pointToLineProtocol(sensor));
         if (!influx.writePoint(sensor))
         {
-            Serial.print("InfluxDB write failed: ");
-            Serial.println(influx.getLastErrorMessage());
+            SerialMon.print("InfluxDB write failed: ");
+            SerialMon.println(influx.getLastErrorMessage());
         }
         return;
     }
@@ -232,8 +246,8 @@ void measureNetwork()
     SerialMon.println(influx.pointToLineProtocol(sensor));
     if (!influx.writePoint(sensor))
     {
-        Serial.print("InfluxDB write failed: ");
-        Serial.println(influx.getLastErrorMessage());
+        SerialMon.print("InfluxDB write failed: ");
+        SerialMon.println(influx.getLastErrorMessage());
     }
 
     if (modem.isNetworkConnected())
@@ -263,7 +277,7 @@ void measureNetwork()
         SerialMon.println(F("GPRS disconnected"));
     */
 
-    turnOffNetlight();
+    //turnOffNetlight();
     modem.poweroff();
     delay(1000);
 }
@@ -281,7 +295,6 @@ void setup()
         SerialMon.println("Setting power error");
     }
     
-
     setupWifi();
     setupModem();
     measureNetwork();
@@ -292,5 +305,14 @@ void setup()
 
 void loop()
 {
-    // NO LOOP
+    while(SerialAT.available())
+    {
+        char c = SerialAT.read();
+        SerialMon.write(c);
+    }
+    while(SerialMon.available())
+    {
+        char c = SerialMon.read();
+        SerialAT.write(c);
+    }
 }
