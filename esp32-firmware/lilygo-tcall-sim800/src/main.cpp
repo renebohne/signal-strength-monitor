@@ -5,6 +5,9 @@
 #include <TinyGsmClient.h>
 #include <WiFi.h>
 
+#include <InfluxDbClient.h>
+#include <InfluxDbCloud.h>
+
 #ifdef DUMP_AT_COMMANDS
 #include <StreamDebugger.h>
 StreamDebugger debugger(SerialAT, SerialMon);
@@ -14,6 +17,9 @@ TinyGsm modem(SerialAT);
 #endif
 
 TinyGsmClient client(modem);
+
+InfluxDBClient influx(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
+Point sensor("signal");
 
 void WiFiStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
 {
@@ -56,7 +62,7 @@ void setupWifi()
     SerialMon.println();
     SerialMon.println();
     SerialMon.println("Wait for WiFi... ");
-    while(!WiFi.isConnected())
+    while (!WiFi.isConnected())
     {
         for (int i = 0; i < 3; i++)
         {
@@ -67,7 +73,23 @@ void setupWifi()
         }
         SerialMon.print(".");
     }
-    
+
+    // Accurate time is necessary for certificate validation and writing in batches
+    // For the fastest time sync find NTP servers in your area: https://www.pool.ntp.org/zone/
+    // Syncing progress and the time will be printed to Serial.
+    timeSync(TZ_INFO, "pool.ntp.org", "time.nis.gov");
+
+    // Check server connection
+    if (influx.validateConnection())
+    {
+        Serial.print("Connected to InfluxDB: ");
+        Serial.println(influx.getServerUrl());
+    }
+    else
+    {
+        Serial.print("InfluxDB connection failed: ");
+        Serial.println(influx.getLastErrorMessage());
+    }
 }
 
 void turnOffNetlight()
@@ -109,7 +131,14 @@ void setupModem()
 
     // Restart takes quite some time
     SerialMon.println("Initializing modem...");
-    modem.restart();
+    while (!modem.restart())
+    {
+        SerialMon.print(".");
+        delay(5000);
+    }
+    SerialAT.flush();
+    delay(1000);
+    SerialMon.println();
 
     // Turn off network status lights to reduce current consumption
     turnOffNetlight();
@@ -117,16 +146,21 @@ void setupModem()
     // The status light cannot be turned off, only physically removed
     // turnOffStatuslight();
 
-    // Or, use modem.init() if you don't need the complete restart
-    String modemInfo = modem.getModemInfo();
+    String modemName = modem.getModemName();
     SerialMon.print("Modem: ");
-    SerialMon.println(modemInfo);
+    SerialMon.println(modemName);
     SerialMon.println();
+    sensor.addTag("modem", modemName.c_str());
+    SerialAT.flush();
+    delay(1000);
 
     String imei = modem.getIMEI();
     SerialMon.print("imei: ");
     SerialMon.println(imei);
     SerialMon.println();
+    sensor.addTag("imei", imei.c_str());
+    SerialAT.flush();
+    delay(1000);
 
     SimStatus simstatus = modem.getSimStatus();
     if (simstatus == 0)
@@ -151,8 +185,6 @@ void setupModem()
     }
 }
 
-
-
 void measureNetwork()
 {
     turnOnNetlight();
@@ -161,14 +193,27 @@ void measureNetwork()
     SerialMon.print("IMSI: ");
     SerialMon.println(imsi);
     SerialMon.println();
+    sensor.addTag("imsi", imsi.c_str());
 
     SerialMon.print("Waiting for network...");
     if (!modem.waitForNetwork(240000L))
     {
         SerialMon.println(" fail");
 
-        // TODO: SEND ERROR INDICATION TO INFLUXDB
-
+        // SEND ERROR INDICATION TO INFLUXDB
+        sensor.clearFields();
+        sensor.addTag("network_connected", "false");
+        int16_t csq = modem.getSignalQuality();
+        SerialMon.print("CSQ: ");
+        SerialMon.println(csq);
+        sensor.addField("csq", csq);
+        SerialMon.print("Writing: ");
+        SerialMon.println(influx.pointToLineProtocol(sensor));
+        if (!influx.writePoint(sensor))
+        {
+            Serial.print("InfluxDB write failed: ");
+            Serial.println(influx.getLastErrorMessage());
+        }
         return;
     }
     SerialMon.println(" OK");
@@ -179,7 +224,17 @@ void measureNetwork()
     int16_t csq = modem.getSignalQuality();
     SerialMon.print("CSQ: ");
     SerialMon.println(csq);
-    //TODO: SEND CSQ TO INFLUXDB
+    // SEND CSQ TO INFLUXDB
+    sensor.clearFields();
+    sensor.addTag("network_connected", "true");
+    sensor.addField("csq", csq);
+    SerialMon.print("Writing: ");
+    SerialMon.println(influx.pointToLineProtocol(sensor));
+    if (!influx.writePoint(sensor))
+    {
+        Serial.print("InfluxDB write failed: ");
+        Serial.println(influx.getLastErrorMessage());
+    }
 
     if (modem.isNetworkConnected())
     {
@@ -190,23 +245,23 @@ void measureNetwork()
         SerialMon.println("lost network connection");
     }
 
-/*
-    //CONNECT TO APN AND CREATE GPRS PACKET DATA CONTEXT
-    SerialMon.print(F("Connecting to APN: "));
-    SerialMon.print(apn);
-    if (!modem.gprsConnect(apn, gprsUser, gprsPass))
-    {
-        SerialMon.println(" fail");
-        delay(10000);
-        return;
-    }
-    SerialMon.println(" OK");
-    
+    /*
+        //CONNECT TO APN AND CREATE GPRS PACKET DATA CONTEXT
+        SerialMon.print(F("Connecting to APN: "));
+        SerialMon.print(apn);
+        if (!modem.gprsConnect(apn, gprsUser, gprsPass))
+        {
+            SerialMon.println(" fail");
+            delay(10000);
+            return;
+        }
+        SerialMon.println(" OK");
 
-    SerialMon.println();
-    modem.gprsDisconnect();
-    SerialMon.println(F("GPRS disconnected"));
-*/
+
+        SerialMon.println();
+        modem.gprsDisconnect();
+        SerialMon.println(F("GPRS disconnected"));
+    */
 
     turnOffNetlight();
     modem.poweroff();
@@ -225,6 +280,7 @@ void setup()
     {
         SerialMon.println("Setting power error");
     }
+    
 
     setupWifi();
     setupModem();
