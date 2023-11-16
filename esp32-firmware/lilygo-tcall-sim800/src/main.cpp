@@ -54,12 +54,6 @@ void setupWifi()
     WiFi.onEvent(WiFiStationConnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_CONNECTED);
     WiFi.onEvent(WiFiGotIP, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
     WiFi.onEvent(WiFiStationDisconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-
-    /* Remove WiFi event
-    SerialMon.print("WiFi Event ID: ");
-    SerialMon.println(eventID);
-    WiFi.removeEvent(eventID);*/
-
     WiFi.begin(ssid, password);
     SerialMon.println();
     SerialMon.println();
@@ -80,7 +74,7 @@ void setupWifi()
     // For the fastest time sync find NTP servers in your area: https://www.pool.ntp.org/zone/
     // Syncing progress and the time will be printed to Serial.
     // TODO: make sure that the right serial port is used in any case
-    timeSync(TZ_INFO, "pool.ntp.org", "time.nis.gov");
+    timeSync(TZ_INFO, "de.pool.ntp.org", "pool.ntp.org");
 
     // Check server connection
     if (influx.validateConnection())
@@ -125,6 +119,8 @@ void runDebugTerminal()
 
 void setupModem()
 {
+    sensor.clearTags();
+
 #ifdef MODEM_RST
     // Keep reset high
     pinMode(MODEM_RST, OUTPUT);
@@ -201,8 +197,7 @@ void setupModem()
 
 void measureNetwork()
 {
-    // turnOnNetlight();
-
+    digitalWrite(LED_GPIO, LED_OFF);
     sensor.clearFields();
 
     SerialMon.print("Waiting for network...");
@@ -219,6 +214,7 @@ void measureNetwork()
             SerialMon.print("InfluxDB write failed: ");
             SerialMon.println(influx.getLastErrorMessage());
         }
+        isFirstRun=true;//ask for new connection and new tags
         return;
     }
     SerialMon.println(" OK");
@@ -264,8 +260,6 @@ void measureNetwork()
         modem.gprsDisconnect();
         SerialMon.println(F("GPRS disconnected"));
     */
-
-    // turnOffNetlight();
 }
 
 void setup()
@@ -282,12 +276,16 @@ void setup()
     }
 
     setupWifi();
-    setupModem();
 }
 
 void loop()
 {
+    //this is in loop, because we might need to reconnect to mobile network
+    if(isFirstRun)
+    {
+        setupModem();
+    }
+
     measureNetwork();
-    // modem.poweroff();
     delay(30000);
 }
