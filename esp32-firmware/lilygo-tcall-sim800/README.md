@@ -6,7 +6,7 @@ More information about the board and example code can be found here: <https://gi
 
 ## Installation
 
-This project uses platformio.
+This project uses PlatformIO. You can use PlatformIO core in a terminal, but we recommend to use Visual Studio Code and the PlatformIO extension.
 
 ## External Libraries
 
