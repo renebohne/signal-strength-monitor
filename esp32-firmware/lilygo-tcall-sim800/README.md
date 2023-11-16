@@ -15,3 +15,24 @@ The following libraries will be installed automatically by platformio:
 - [TinyGSM](https://github.com/vshymanskyy/TinyGSM)
 - [StreamDebugger](https://github.com/vshymanskyy/StreamDebugger)
 - [AXP202X_Library](https://github.com/lewisxhe/AXP202X_Library)
+- [InfluxDB-Client-for-Arduino](https://github.com/tobiasschuerg/InfluxDB-Client-for-Arduino)
+
+A good tutorial about Influxdb and Arduino: https://randomnerdtutorials.com/esp32-influxdb/
+
+## Troubleshooting
+
+If your modem does not work as expected, try some of these commands:
+```c
+    /*
+        modem.sendAT(GF("+CMEE=0"));  // turn off error codes
+        modem.waitResponse();
+        modem.sendAT(GF("+CIURC=0"));  // turn off URC presentation
+        modem.waitResponse();
+        modem.sendAT(GF("&w"));  // save
+        modem.waitResponse();
+        modem.streamClear();
+        delay(5000);
+    */
+
+    // modem.factoryDefault();
+```

@@ -18,6 +18,8 @@ TinyGsm modem(SerialAT);
 
 TinyGsmClient client(modem);
 
+bool isFirstRun=true;
+
 InfluxDBClient influx(INFLUXDB_URL, INFLUXDB_ORG, INFLUXDB_BUCKET, INFLUXDB_TOKEN, InfluxDbCloud2CACert);
 Point sensor("signal");
 
@@ -107,6 +109,20 @@ void turnOnNetlight()
     modem.waitResponse();
 }
 
+void runDebugTerminal()
+{
+    while (SerialAT.available())
+    {
+        char c = SerialAT.read();
+        SerialMon.write(c);
+    }
+    while (SerialMon.available())
+    {
+        char c = SerialMon.read();
+        SerialAT.write(c);
+    }
+}
+
 void setupModem()
 {
 #ifdef MODEM_RST
@@ -143,52 +159,31 @@ void setupModem()
     }
     SerialMon.println();
 
-/*
-    modem.sendAT(GF("+CMEE=0"));  // turn off error codes
-    modem.waitResponse();
-    modem.sendAT(GF("+CIURC=0"));  // turn off URC presentation
-    modem.waitResponse();
-    modem.sendAT(GF("&w"));  // save
-    modem.waitResponse();
-    modem.streamClear();
-    delay(5000);
-*/
-
-
-    //modem.factoryDefault();
-
-    // Turn off network status lights to reduce current consumption
-    //turnOffNetlight();
-
-    // The status light cannot be turned off, only physically removed
-    // turnOffStatuslight();
-
-   
     String modemName = modem.getModemName();
     SerialMon.print("Modem: ");
     SerialMon.println(modemName);
-    SerialMon.println();
     sensor.addTag("modem", modemName.c_str());
 
     String imei = modem.getIMEI();
     SerialMon.print("imei: ");
     SerialMon.println(imei);
-    SerialMon.println();
     sensor.addTag("imei", imei.c_str());
-    
+
     SimStatus simstatus = modem.getSimStatus();
     if (simstatus == 0)
     {
         SerialMon.println("SIM ERROR!");
-        modem.poweroff();
-        SerialMon.println();
-        printVoltages();
-        for (int i = 0; i < 10; i++)
+        // modem.poweroff();
+        while (true)
         {
-            digitalWrite(LED_GPIO, LED_ON);
-            delay(100);
-            digitalWrite(LED_GPIO, LED_OFF);
-            delay(100);
+            for (int i = 0; i < 4; i++)
+            {
+                digitalWrite(LED_GPIO, LED_ON);
+                delay(50);
+                digitalWrite(LED_GPIO, LED_OFF);
+                delay(50);
+            }
+            runDebugTerminal();
         }
     }
 
@@ -197,17 +192,18 @@ void setupModem()
     {
         modem.simUnlock(simPIN);
     }
-}
-
-void measureNetwork()
-{
-    //turnOnNetlight();
 
     String imsi = modem.getIMSI();
     SerialMon.print("IMSI: ");
     SerialMon.println(imsi);
-    SerialMon.println();
     sensor.addTag("imsi", imsi.c_str());
+}
+
+void measureNetwork()
+{
+    // turnOnNetlight();
+
+    sensor.clearFields();
 
     SerialMon.print("Waiting for network...");
     if (!modem.waitForNetwork(240000L))
@@ -215,12 +211,7 @@ void measureNetwork()
         SerialMon.println(" fail");
 
         // SEND ERROR INDICATION TO INFLUXDB
-        sensor.clearFields();
-        sensor.addTag("network_connected", "false");
-        int16_t csq = modem.getSignalQuality();
-        SerialMon.print("CSQ: ");
-        SerialMon.println(csq);
-        sensor.addField("csq", csq);
+        sensor.addField("csq", 99);
         SerialMon.print("Writing: ");
         SerialMon.println(influx.pointToLineProtocol(sensor));
         if (!influx.writePoint(sensor))
@@ -239,24 +230,21 @@ void measureNetwork()
     SerialMon.print("CSQ: ");
     SerialMon.println(csq);
     // SEND CSQ TO INFLUXDB
-    sensor.clearFields();
-    sensor.addTag("network_connected", "true");
     sensor.addField("csq", csq);
+
+    if(isFirstRun)
+    {
+        String networkoperator = modem.getOperator();
+        sensor.addTag("operator", networkoperator.c_str());
+        isFirstRun=false;
+    }
+    
     SerialMon.print("Writing: ");
     SerialMon.println(influx.pointToLineProtocol(sensor));
     if (!influx.writePoint(sensor))
     {
         SerialMon.print("InfluxDB write failed: ");
         SerialMon.println(influx.getLastErrorMessage());
-    }
-
-    if (modem.isNetworkConnected())
-    {
-        SerialMon.println("network connected");
-    }
-    else
-    {
-        SerialMon.println("lost network connection");
     }
 
     /*
@@ -277,9 +265,7 @@ void measureNetwork()
         SerialMon.println(F("GPRS disconnected"));
     */
 
-    //turnOffNetlight();
-    modem.poweroff();
-    delay(1000);
+    // turnOffNetlight();
 }
 
 void setup()
@@ -294,25 +280,14 @@ void setup()
     {
         SerialMon.println("Setting power error");
     }
-    
+
     setupWifi();
     setupModem();
-    measureNetwork();
-
-    // TODO: switch off modem via PMU
-    // TODO: DEEP SLEEP
 }
 
 void loop()
 {
-    while(SerialAT.available())
-    {
-        char c = SerialAT.read();
-        SerialMon.write(c);
-    }
-    while(SerialMon.available())
-    {
-        char c = SerialMon.read();
-        SerialAT.write(c);
-    }
+    measureNetwork();
+    // modem.poweroff();
+    delay(30000);
 }
