@@ -53,9 +53,33 @@ void setupWifi()
     WiFi.removeEvent(eventID);*/
 
     WiFi.begin(ssid, password);
-    Serial.println();
-    Serial.println();
-    Serial.println("Wait for WiFi... ");
+    SerialMon.println();
+    SerialMon.println();
+    SerialMon.println("Wait for WiFi... ");
+    while(!WiFi.isConnected())
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            digitalWrite(LED_GPIO, LED_ON);
+            delay(80);
+            digitalWrite(LED_GPIO, LED_OFF);
+            delay(80);
+        }
+        SerialMon.print(".");
+    }
+    
+}
+
+void turnOffNetlight()
+{
+    SerialMon.println("Turning off SIM800 Red LED...");
+    modem.sendAT("+CNETLIGHT=0");
+}
+
+void turnOnNetlight()
+{
+    SerialMon.println("Turning on SIM800 Red LED...");
+    modem.sendAT("+CNETLIGHT=1");
 }
 
 void setupModem()
@@ -82,44 +106,8 @@ void setupModem()
     // Initialize the indicator as an output
     pinMode(LED_GPIO, OUTPUT);
     digitalWrite(LED_GPIO, LED_OFF);
-}
 
-void turnOffNetlight()
-{
-    SerialMon.println("Turning off SIM800 Red LED...");
-    modem.sendAT("+CNETLIGHT=0");
-}
-
-void turnOnNetlight()
-{
-    SerialMon.println("Turning on SIM800 Red LED...");
-    modem.sendAT("+CNETLIGHT=1");
-}
-
-void setup()
-{
-    SerialMon.begin(115200);
-    delay(10);
-
-    // Start power management
-    if (setupPMU() == false)
-    {
-        Serial.println("Setting power error");
-    }
-
-    setupWifi();
-
-    // Some start operations
-    setupModem();
-
-    // Set GSM module baud rate and UART pins
-    SerialAT.begin(115200, SERIAL_8N1, MODEM_RX, MODEM_TX);
-}
-
-void loop()
-{
     // Restart takes quite some time
-    // To skip it, call init() instead of restart()
     SerialMon.println("Initializing modem...");
     modem.restart();
 
@@ -133,10 +121,12 @@ void loop()
     String modemInfo = modem.getModemInfo();
     SerialMon.print("Modem: ");
     SerialMon.println(modemInfo);
+    SerialMon.println();
 
     String imei = modem.getIMEI();
     SerialMon.print("imei: ");
     SerialMon.println(imei);
+    SerialMon.println();
 
     SimStatus simstatus = modem.getSimStatus();
     if (simstatus == 0)
@@ -145,7 +135,7 @@ void loop()
         modem.poweroff();
         SerialMon.println();
         printVoltages();
-        while (true)
+        for (int i = 0; i < 10; i++)
         {
             digitalWrite(LED_GPIO, LED_ON);
             delay(100);
@@ -159,16 +149,26 @@ void loop()
     {
         modem.simUnlock(simPIN);
     }
+}
+
+
+
+void measureNetwork()
+{
+    turnOnNetlight();
 
     String imsi = modem.getIMSI();
     SerialMon.print("IMSI: ");
     SerialMon.println(imsi);
+    SerialMon.println();
 
     SerialMon.print("Waiting for network...");
     if (!modem.waitForNetwork(240000L))
     {
         SerialMon.println(" fail");
-        delay(10000);
+
+        // TODO: SEND ERROR INDICATION TO INFLUXDB
+
         return;
     }
     SerialMon.println(" OK");
@@ -176,11 +176,22 @@ void loop()
     // When the network connection is successful, turn on the indicator
     digitalWrite(LED_GPIO, LED_ON);
 
+    int16_t csq = modem.getSignalQuality();
+    SerialMon.print("CSQ: ");
+    SerialMon.println(csq);
+    //TODO: SEND CSQ TO INFLUXDB
+
     if (modem.isNetworkConnected())
     {
-        SerialMon.println("Network connected");
+        SerialMon.println("network connected");
+    }
+    else
+    {
+        SerialMon.println("lost network connection");
     }
 
+/*
+    //CONNECT TO APN AND CREATE GPRS PACKET DATA CONTEXT
     SerialMon.print(F("Connecting to APN: "));
     SerialMon.print(apn);
     if (!modem.gprsConnect(apn, gprsUser, gprsPass))
@@ -190,9 +201,40 @@ void loop()
         return;
     }
     SerialMon.println(" OK");
+    
 
     SerialMon.println();
     modem.gprsDisconnect();
     SerialMon.println(F("GPRS disconnected"));
-    delay(30000);
+*/
+
+    turnOffNetlight();
+    modem.poweroff();
+    delay(1000);
+}
+
+void setup()
+{
+    SerialMon.begin(115200);
+    delay(10);
+    // Set GSM module baud rate and UART pins
+    SerialAT.begin(115200, SERIAL_8N1, MODEM_RX, MODEM_TX);
+
+    // Start power management
+    if (setupPMU() == false)
+    {
+        SerialMon.println("Setting power error");
+    }
+
+    setupWifi();
+    setupModem();
+    measureNetwork();
+
+    // TODO: switch off modem via PMU
+    // TODO: DEEP SLEEP
+}
+
+void loop()
+{
+    // NO LOOP
 }

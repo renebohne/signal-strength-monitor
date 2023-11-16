@@ -1,6 +1,6 @@
 // WIFI PARAMETERS
-const char *ssid = "REPLACE_WITH_YOUR_SSID";
-const char *password = "REPLACE_WITH_YOUR_PASSWORD";
+const char *ssid = "WIFISSID";
+const char *password = "WIFIPASSWORD";
 
 
 #define SIM800L_IP5306_VERSION_20190610
@@ -9,7 +9,7 @@ const char *password = "REPLACE_WITH_YOUR_PASSWORD";
 //#define SIM800L_IP5306_VERSION_20200811
 
 // See all AT commands, if wanted
-#define DUMP_AT_COMMANDS
+//#define DUMP_AT_COMMANDS
 
 // Your GPRS credentials (leave empty, if missing)
 const char apn[]      = ""; // Your APN
